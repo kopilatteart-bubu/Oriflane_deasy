@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oriflame Inventory System</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & React DOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel Standalone CDN -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    const Icon = ({ name, size = 18, className = "" }) => {
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+      return <i data-lucide={name} style={{ width: size, height: size }} className={`inline-block ${className}`}></i>;
+    };
+
+    const PRESET_PRODUCTS = [
+      { id: 'ORI-001', name: 'Tender Care Protecting Balm with Organic Honey', category: 'Skincare', price: 49900, stock: 45, minStock: 10, unit: 'pcs', description: 'Balsam serbaguna untuk melembapkan kulit kering dan bibir.' },
+      { id: 'ORI-002', name: 'NovAge Ultimate Lift Contour Define Day Cream SPF 15', category: 'Skincare', price: 579000, stock: 12, minStock: 5, unit: 'pcs', description: 'Krim siang pengencang wajah dengan teknologi AspartoLift.' },
+      { id: 'ORI-003', name: 'Giordani Gold Man Anti-perspirant Roll-On Deodorant', category: 'Personal Care', price: 69900, stock: 28, minStock: 8, unit: 'pcs', description: 'Deodoran roll-on dengan wewangian kayu khas Giordani Gold Man.' },
+      { id: 'ORI-004', name: 'Eclat Amour Eau de Toilette', category: 'Fragrance', price: 429000, stock: 8, minStock: 5, unit: 'pcs', description: 'Wewangian romantis dengan aroma white violet dan cedarwood.' },
+      { id: 'ORI-005', name: 'Love Nature Purifying Gel Wash with Organic Tea Tree & Lime', category: 'Skincare', price: 89900, stock: 30, minStock: 10, unit: 'pcs', description: 'Pembersih wajah gel untuk kulit berminyak.' },
+      { id: 'ORI-006', name: 'Giordani Gold Iconic Liquid Lipstick SPF 15 - Elixir', category: 'Makeup', price: 219000, stock: 15, minStock: 5, unit: 'pcs', description: 'Lipstik cair berkilau dengan tekstur transformatif matte.' },
+      { id: 'ORI-007', name: 'Wellosophy Omega 3', category: 'Wellness', price: 349000, stock: 20, minStock: 5, unit: 'botol', description: 'Suplemen minyak ikan berkualitas tinggi kaya EPA dan DHA.' },
+      { id: 'ORI-008', name: 'Milk & Honey Gold Smoothing Sugar Scrub', category: 'Personal Care', price: 159000, stock: 18, minStock: 6, unit: 'pcs', description: 'Scrub gula eksfoliasi mewah dengan ekstrak susu dan madu murni.' }
+    ];
+
+    function App() {
+      const [products, setProducts] = useState(() => {
+        try {
+          const saved = localStorage.getItem('oriflame_inventory_data');
+          return saved ? JSON.parse(saved) : PRESET_PRODUCTS;
+        } catch (e) {
+          return PRESET_PRODUCTS;
+        }
+      });
+
+      const [searchQuery, setSearchQuery] = useState('');
+      const [selectedCategory, setSelectedCategory] = useState('Semua');
+      const [isFormOpen, setIsFormOpen] = useState(false);
+      const [editingProduct, setEditingProduct] = useState(null);
+      const [deleteId, setDeleteId] = useState(null);
+      const [toast, setToast] = useState(null);
+
+      const [formData, setFormData] = useState({
+        id: '', name: '', category: 'Skincare', price: '', stock: '', minStock: 5, unit: 'pcs', description: ''
+      });
+
+      useEffect(() => {
+        try {
+          localStorage.setItem('oriflame_inventory_data', JSON.stringify(products));
+        } catch(e) {}
+        if (window.lucide) window.lucide.createIcons();
+      }, [products, isFormOpen, toast]);
+
+      const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      const categories = ['Semua', 'Skincare', 'Makeup', 'Fragrance', 'Personal Care', 'Wellness', 'Hair Care'];
+
+      const stats = useMemo(() => {
+        const totalSKU = products.length;
+        const totalItems = products.reduce((acc, item) => acc + Number(item.stock), 0);
+        const totalValue = products.reduce((acc, item) => acc + (Number(item.price) * Number(item.stock)), 0);
+        const lowStockCount = products.filter(item => Number(item.stock) <= Number(item.minStock)).length;
+        return { totalSKU, totalItems, totalValue, lowStockCount };
+      }, [products]);
+
+      const filteredProducts = useMemo(() => {
+        return products.filter(product => {
+          const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                product.id.toLowerCase().includes(searchQuery.toLowerCase());
+          const matchesCategory = selectedCategory === 'Semua' || product.category === selectedCategory;
+          return matchesSearch && matchesCategory;
+        });
+      }, [products, searchQuery, selectedCategory]);
+
+      const formatRupiah = (val) => {
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+      };
+
+      const handleQuickStock = (id, delta) => {
+        setProducts(prev => prev.map(item => {
+          if (item.id === id) {
+            return { ...item, stock: Math.max(0, Number(item.stock) + delta) };
+          }
+          return item;
+        }));
+      };
+
+      const handleOpenForm = (product = null) => {
+        if (product) {
+          setEditingProduct(product);
+          setFormData(product);
+        } else {
