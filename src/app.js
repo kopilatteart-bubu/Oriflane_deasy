@@ -1,8 +1,11 @@
 const { useState, useEffect, useMemo } = React;
 
 const STORAGE_KEYS = window.APP_DATA.storageKeys;
-const DEFAULT_PRODUCTS = window.APP_DATA.defaultProducts;
-const ALL_CATEGORIES = ['Semua', ...window.APP_DATA.categories];
+const DEFAULT_PRODUCTS = Array.isArray(window.APP_DATA.defaultProducts)
+  ? window.APP_DATA.defaultProducts
+  : [];
+const CATEGORIES = window.APP_DATA.categories || [];
+const ALL_CATEGORIES = ['Semua', ...CATEGORIES];
 
 const EMPTY_FORM = {
   id: '',
@@ -10,7 +13,7 @@ const EMPTY_FORM = {
   category: 'Skincare',
   price: '',
   stock: '',
-  minStock: '5',
+  minStock: '',
   unit: 'pcs',
   description: '',
   image: ''
@@ -63,10 +66,7 @@ const Icon = ({ name, size = 18, className = '' }) => {
 function App() {
   const [products, setProducts] = useState(() => loadSavedValue(STORAGE_KEYS.inventory, DEFAULT_PRODUCTS));
   const [transactions, setTransactions] = useState(() => loadSavedValue(STORAGE_KEYS.transactions, []));
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.theme);
-    return saved || 'light';
-  });
+  const [theme, setTheme] = useState(() => localStorage.getItem(STORAGE_KEYS.theme) || 'light');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [activeTab, setActiveTab] = useState('inventory');
@@ -76,11 +76,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [formErrors, setFormErrors] = useState({});
-  const [saleForm, setSaleForm] = useState({
-    productId: '',
-    quantity: 1,
-    customer: ''
-  });
+  const [saleForm, setSaleForm] = useState({ productId: '', quantity: 1, customer: '' });
   const [importInputKey, setImportInputKey] = useState(Date.now());
 
   useEffect(() => {
@@ -115,7 +111,10 @@ function App() {
     const totalSKU = products.length;
     const totalItems = products.reduce((sum, item) => sum + safeNumber(item.stock, 0), 0);
     const totalValue = products.reduce((sum, item) => sum + safeNumber(item.price, 0) * safeNumber(item.stock, 0), 0);
-    const lowStockCount = products.filter((item) => safeNumber(item.stock, 0) <= safeNumber(item.minStock, 0)).length;
+    const lowStockCount = products.filter((item) => {
+      const min = safeNumber(item.minStock, 0);
+      return min > 0 && safeNumber(item.stock, 0) <= min;
+    }).length;
 
     return { totalSKU, totalItems, totalValue, lowStockCount };
   }, [products]);
@@ -123,19 +122,46 @@ function App() {
   const filteredProducts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return products.filter((product) => {
-      const nameMatches = !query || product.name.toLowerCase().includes(query);
-      const idMatches = !query || product.id.toLowerCase().includes(query);
-      const categoryMatches = selectedCategory === 'Semua' || product.category === selectedCategory;
-      return (nameMatches || idMatches) && categoryMatches;
+      const matchesQuery = !query || product.name.toLowerCase().includes(query) || product.id.toLowerCase().includes(query);
+      const matchesCategory = selectedCategory === 'Semua' || product.category === selectedCategory;
+      return matchesQuery && matchesCategory;
     });
   }, [products, searchQuery, selectedCategory]);
 
-  const recentTransactions = useMemo(() =>
-    [...transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 6),
-    [transactions]);
+  const salesChartData = useMemo(() => {
+    const lastSeven = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - (6 - index));
+      return {
+        key: date.toISOString().slice(0, 10),
+        label: date.toLocaleDateString('id-ID', { weekday: 'short' })
+      };
+    });
+
+    const values = new Map(lastSeven.map((day) => [day.key, 0]));
+    transactions.forEach((tx) => {
+      const key = new Date(tx.createdAt).toISOString().slice(0, 10);
+      if (values.has(key)) {
+        values.set(key, values.get(key) + safeNumber(tx.total, 0));
+      }
+    });
+
+    return lastSeven.map((day) => ({
+      ...day,
+      value: values.get(day.key) || 0
+    }));
+  }, [transactions]);
+
+  const chartMaxValue = useMemo(() => Math.max(...salesChartData.map((day) => day.value), 1), [salesChartData]);
+
+  const recentTransactions = useMemo(
+    () => [...transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 6),
+    [transactions]
+  );
 
   const totalRevenue = useMemo(
-    () => transactions.reduce((sum, item) => sum + safeNumber(item.total, 0), 0),
+    () => transactions.reduce((sum, tx) => sum + safeNumber(tx.total, 0), 0),
     [transactions]
   );
 
@@ -145,22 +171,20 @@ function App() {
 
   const validateProduct = (data) => {
     const errors = {};
-    const trimmedId = data.id.trim();
-    const trimmedName = data.name.trim();
-    const trimmedCategory = data.category.trim();
-    const trimmedUnit = data.unit.trim();
-    const price = safeNumber(data.price, NaN);
-    const stock = safeNumber(data.stock, NaN);
-    const minStock = safeNumber(data.minStock, NaN);
+    const price = safeNumber(data.price, Number.NaN);
+    const stock = safeNumber(data.stock, Number.NaN);
+    const minStock = data.minStock === '' ? undefined : safeNumber(data.minStock, Number.NaN);
 
-    if (!trimmedId) errors.id = 'ID produk wajib diisi.';
-    if (!trimmedName) errors.name = 'Nama produk wajib diisi.';
-    if (!trimmedCategory) errors.category = 'Kategori wajib diisi.';
-    if (!trimmedUnit) errors.unit = 'Satuan wajib diisi.';
+    if (!data.id.trim()) errors.id = 'ID produk wajib diisi.';
+    if (!data.name.trim()) errors.name = 'Nama produk wajib diisi.';
+    if (!data.category.trim()) errors.category = 'Kategori wajib diisi.';
+    if (!data.unit.trim()) errors.unit = 'Satuan wajib diisi.';
     if (!Number.isFinite(price) || price <= 0) errors.price = 'Harga harus lebih dari 0.';
     if (!Number.isFinite(stock) || stock < 0) errors.stock = 'Stok tidak boleh negatif.';
-    if (!Number.isFinite(minStock) || minStock < 0) errors.minStock = 'Minimal stok tidak boleh negatif.';
-    if (Number.isFinite(stock) && Number.isFinite(minStock) && stock < minStock) {
+    if (minStock !== undefined && (!Number.isFinite(minStock) || minStock < 0)) {
+      errors.minStock = 'Minimum stok tidak valid.';
+    }
+    if (Number.isFinite(stock) && minStock !== undefined && Number.isFinite(minStock) && stock < minStock) {
       errors.stock = 'Stok tidak boleh lebih kecil dari minimum stok.';
     }
 
@@ -182,7 +206,7 @@ function App() {
       category: product.category,
       price: String(product.price),
       stock: String(product.stock),
-      minStock: String(product.minStock),
+      minStock: product.minStock === undefined || product.minStock === null ? '' : String(product.minStock),
       unit: product.unit,
       description: product.description || '',
       image: product.image || ''
@@ -207,16 +231,13 @@ function App() {
   const handleImageUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
       showToast('File harus berupa gambar.', 'error');
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
-      setFormData((prev) => ({ ...prev, image: reader.result }));
-    };
+    reader.onload = () => setFormData((prev) => ({ ...prev, image: reader.result }));
     reader.readAsDataURL(file);
   };
 
@@ -236,7 +257,7 @@ function App() {
       category: formData.category.trim(),
       price: safeNumber(formData.price, 0),
       stock: safeNumber(formData.stock, 0),
-      minStock: safeNumber(formData.minStock, 0),
+      minStock: formData.minStock === '' ? 0 : safeNumber(formData.minStock, 0),
       unit: formData.unit.trim() || 'pcs',
       description: formData.description.trim(),
       image: formData.image || ''
@@ -314,9 +335,7 @@ function App() {
 
     setTransactions((prev) => [newTransaction, ...prev]);
     setProducts((prev) =>
-      prev.map((item) =>
-        item.id === product.id ? { ...item, stock: safeNumber(item.stock, 0) - quantity } : item
-      )
+      prev.map((item) => (item.id === product.id ? { ...item, stock: safeNumber(item.stock, 0) - quantity } : item))
     );
     setSaleForm({ productId: '', quantity: 1, customer: '' });
     showToast('Transaksi berhasil dicatat.');
@@ -355,9 +374,7 @@ function App() {
         }
 
         setProducts(incomingProducts);
-        if (Array.isArray(parsed.transactions)) {
-          setTransactions(parsed.transactions);
-        }
+        if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions);
         setImportInputKey(Date.now());
         showToast('Inventaris berhasil diimpor.');
       } catch (error) {
@@ -368,29 +385,34 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(244,114,182,0.18),transparent_28%),linear-gradient(135deg,#f8fafc_0%,#fff1f2_28%,#f8fafc_100%)] text-slate-800 transition-colors duration-200 dark:bg-[radial-gradient(circle_at_top,_rgba(236,72,153,0.18),transparent_26%),linear-gradient(135deg,#0f172a_0%,#111827_52%,#020617_100%)] dark:text-slate-100">
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 lg:px-8">
-        <header className="mb-6 rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-soft backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/80">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">Inventory Dashboard</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 md:text-3xl">Oriflame Inventory System</h1>
+        <header className="brand-shell mb-6 rounded-[28px] border border-pink-100 p-6 shadow-soft dark:border-pink-500/20">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="brand-mark flex h-16 w-16 items-center justify-center rounded-2xl font-black text-white shadow-lg">
+                O
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-pink-600 dark:text-pink-300">Oriflame Beauty</p>
+                <h1 className="mt-2 text-2xl font-black text-slate-800 dark:text-white md:text-3xl">Inventory Control Center</h1>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                className="inline-flex items-center gap-2 rounded-xl border border-pink-200 bg-white/90 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900/80 dark:text-pink-100"
               >
                 <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
-                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                {theme === 'dark' ? 'Light' : 'Dark'}
               </button>
 
               <button
                 type="button"
                 onClick={openCreateForm}
-                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-pink-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 transition hover:scale-[1.01]"
               >
                 <Icon name="plus" size={16} />
                 Tambah Produk
@@ -399,7 +421,7 @@ function App() {
           </div>
         </header>
 
-        <nav className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+        <nav className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-pink-100 bg-white/70 p-2 shadow-soft backdrop-blur-sm dark:border-pink-500/20 dark:bg-slate-900/70">
           {[
             { id: 'inventory', label: 'Inventory', icon: 'box' },
             { id: 'sales', label: 'Sales', icon: 'shopping-cart' },
@@ -411,8 +433,8 @@ function App() {
               onClick={() => setActiveTab(tab.id)}
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
                 activeTab === tab.id
-                  ? 'bg-sky-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                  ? 'bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-lg shadow-pink-500/20'
+                  : 'text-slate-600 hover:bg-pink-50 dark:text-slate-300 dark:hover:bg-slate-800'
               }`}
             >
               <Icon name={tab.icon} size={16} />
@@ -425,16 +447,16 @@ function App() {
           <>
             <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {[
-                { label: 'Total SKU', value: stats.totalSKU, icon: 'package', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200' },
-                { label: 'Total Item', value: stats.totalItems, icon: 'layers', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-200' },
-                { label: 'Nilai Stok', value: formatRupiah(stats.totalValue), icon: 'wallet', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200' },
-                { label: 'Low Stock', value: stats.lowStockCount, icon: 'alert-triangle', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200' }
+                { label: 'Total SKU', value: stats.totalSKU, icon: 'package', color: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-200' },
+                { label: 'Total Item', value: stats.totalItems, icon: 'layers', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-200' },
+                { label: 'Nilai Stok', value: formatRupiah(stats.totalValue), icon: 'wallet', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200' },
+                { label: 'Low Stock', value: stats.lowStockCount, icon: 'alert-triangle', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200' }
               ].map((card) => (
-                <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+                <div key={card.label} className="rounded-2xl border border-pink-100 bg-white/80 p-4 shadow-soft dark:border-pink-500/20 dark:bg-slate-900/80">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-slate-500 dark:text-slate-400">{card.label}</p>
-                      <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-slate-100">{card.value}</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-white">{card.value}</p>
                     </div>
                     <div className={`rounded-xl p-2 ${card.color}`}>
                       <Icon name={card.icon} size={20} />
@@ -444,7 +466,7 @@ function App() {
               ))}
             </section>
 
-            <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+            <section className="mb-6 rounded-2xl border border-pink-100 bg-white/80 p-4 shadow-soft dark:border-pink-500/20 dark:bg-slate-900/80">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="relative w-full max-w-md">
                   <Icon name="search" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -453,7 +475,7 @@ function App() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Cari nama atau ID..."
-                    className="input-shell w-full rounded-xl border bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
                 </div>
 
@@ -465,8 +487,8 @@ function App() {
                       onClick={() => setSelectedCategory(category)}
                       className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
                         selectedCategory === category
-                          ? 'bg-sky-600 text-white shadow-sm'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                          ? 'bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-pink-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                       }`}
                     >
                       {category}
@@ -480,23 +502,23 @@ function App() {
               <button
                 type="button"
                 onClick={exportInventory}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                className="inline-flex items-center gap-2 rounded-xl border border-pink-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900 dark:text-slate-200"
               >
                 <Icon name="download" size={16} />
                 Export Inventory
               </button>
 
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-pink-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900 dark:text-slate-200">
                 <Icon name="upload" size={16} />
                 Import Inventory
                 <input key={importInputKey} type="file" accept="application/json" className="hidden" onChange={importInventory} />
               </label>
             </section>
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft dark:border-slate-700 dark:bg-slate-900">
+            <section className="overflow-hidden rounded-2xl border border-pink-100 bg-white shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                  <thead className="bg-slate-50 dark:bg-slate-800/80">
+                <table className="min-w-full divide-y divide-pink-100 dark:divide-pink-500/20">
+                  <thead className="bg-pink-50/80 dark:bg-slate-800/80">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kategori</th>
@@ -506,7 +528,7 @@ function App() {
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aksi</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900">
+                  <tbody className="divide-y divide-pink-100 bg-white dark:divide-pink-500/20 dark:bg-slate-900">
                     {filteredProducts.length === 0 ? (
                       <tr>
                         <td colSpan="6" className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
@@ -515,15 +537,16 @@ function App() {
                       </tr>
                     ) : (
                       filteredProducts.map((product) => {
-                        const isLowStock = safeNumber(product.stock, 0) <= safeNumber(product.minStock, 0);
+                        const minStockValue = safeNumber(product.minStock, 0);
+                        const isLowStock = minStockValue > 0 && safeNumber(product.stock, 0) <= minStockValue;
 
                         return (
-                          <tr key={product.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/70">
+                          <tr key={product.id} className="hover:bg-pink-50/50 dark:hover:bg-slate-800/70">
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-3">
-                                <div className="h-14 w-14 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-sky-100 to-violet-100 dark:border-slate-700 dark:from-sky-900 dark:to-violet-900">
+                                <div className="h-14 w-14 overflow-hidden rounded-xl border border-pink-100 bg-gradient-to-br from-pink-100 to-violet-100 dark:border-pink-500/20 dark:from-pink-900/30 dark:to-violet-900/30">
                                   {product.image ? (
-                                    <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+                                    <img src={product.image} alt={product.name} className="product-image h-full w-full" />
                                   ) : (
                                     <div className="flex h-full w-full items-center justify-center text-slate-500 dark:text-slate-200">
                                       <Icon name="image" size={20} />
@@ -543,7 +566,7 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => handleQuickStock(product.id, -1)}
-                                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-pink-100 text-slate-600 hover:bg-pink-50 dark:border-pink-500/20 dark:text-slate-300 dark:hover:bg-slate-800"
                                   aria-label={`Kurangi stok ${product.name}`}
                                 >
                                   <Icon name="minus" size={14} />
@@ -552,7 +575,7 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => handleQuickStock(product.id, 1)}
-                                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-pink-100 text-slate-600 hover:bg-pink-50 dark:border-pink-500/20 dark:text-slate-300 dark:hover:bg-slate-800"
                                   aria-label={`Tambah stok ${product.name}`}
                                 >
                                   <Icon name="plus" size={14} />
@@ -562,10 +585,12 @@ function App() {
                             <td className="px-4 py-4">
                               <span
                                 className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                  isLowStock ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200'
+                                  isLowStock
+                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200'
+                                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
                                 }`}
                               >
-                                {isLowStock ? 'Low Stock' : 'Healthy'}
+                                {isLowStock ? 'Low Stock' : minStockValue > 0 ? 'Tracked' : 'No Min'}
                               </span>
                             </td>
                             <td className="px-4 py-4">
@@ -573,7 +598,7 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => openEditForm(product)}
-                                  className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  className="rounded-lg border border-pink-100 p-2 text-slate-600 transition hover:bg-pink-50 dark:border-pink-500/20 dark:text-slate-300 dark:hover:bg-slate-800"
                                   aria-label={`Edit ${product.name}`}
                                 >
                                   <Icon name="pencil" size={16} />
@@ -581,7 +606,7 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => setDeleteId(product.id)}
-                                  className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300"
+                                  className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100 dark:border-red-700/30 dark:bg-red-950/20 dark:text-red-300"
                                   aria-label={`Hapus ${product.name}`}
                                 >
                                   <Icon name="trash-2" size={16} />
@@ -601,10 +626,13 @@ function App() {
 
         {activeTab === 'sales' && (
           <section className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+            <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Create Sale</h2>
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 dark:text-white">Create Sale</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Quick checkout and stock deduction</p>
+                </div>
+                <span className="rounded-full bg-pink-100 px-2.5 py-1 text-xs font-semibold text-pink-700 dark:bg-pink-900/40 dark:text-pink-200">
                   {transactions.length} transactions
                 </span>
               </div>
@@ -615,7 +643,7 @@ function App() {
                   <select
                     value={saleForm.productId}
                     onChange={(e) => setSaleForm((prev) => ({ ...prev, productId: e.target.value }))}
-                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="">Pilih produk</option>
                     {products.map((product) => (
@@ -633,7 +661,7 @@ function App() {
                     min="1"
                     value={saleForm.quantity}
                     onChange={(e) => setSaleForm((prev) => ({ ...prev, quantity: safeNumber(e.target.value, 1) }))}
-                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
                 </div>
 
@@ -644,12 +672,12 @@ function App() {
                     value={saleForm.customer}
                     onChange={(e) => setSaleForm((prev) => ({ ...prev, customer: e.target.value }))}
                     placeholder="Walk-in Customer"
-                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
                 </div>
 
                 {saleForm.productId && (
-                  <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800">
+                  <div className="rounded-xl bg-pink-50 p-3 text-sm dark:bg-pink-950/20">
                     <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                       <span>Harga satuan</span>
                       <strong className="text-slate-800 dark:text-slate-100">
@@ -667,34 +695,34 @@ function App() {
 
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-105"
                 >
                   Simpan Transaksi
                 </button>
               </form>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-700 dark:bg-slate-900">
-              <h2 className="mb-4 text-xl font-bold text-slate-800 dark:text-slate-100">Sales Summary</h2>
+            <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
+              <h2 className="mb-4 text-xl font-black text-slate-800 dark:text-white">Sales Summary</h2>
 
               <div className="space-y-3">
-                <div className="rounded-xl bg-sky-50 p-4 dark:bg-sky-950/30">
-                  <p className="text-sm text-sky-700 dark:text-sky-200">Total Revenue</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-slate-100">{formatRupiah(totalRevenue)}</p>
+                <div className="rounded-xl bg-gradient-to-r from-pink-50 to-violet-50 p-4 dark:from-pink-900/20 dark:to-violet-900/15">
+                  <p className="text-sm text-pink-700 dark:text-pink-200">Total Revenue</p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalRevenue)}</p>
                 </div>
 
-                <div className="rounded-xl bg-violet-50 p-4 dark:bg-violet-950/30">
-                  <p className="text-sm text-violet-700 dark:text-violet-200">Best Selling</p>
-                  <p className="mt-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                <div className="rounded-xl bg-gradient-to-r from-violet-50 to-fuchsia-50 p-4 dark:from-violet-900/20 dark:to-fuchsia-900/15">
+                  <p className="text-sm text-violet-700 dark:text-violet-200">Top Product</p>
+                  <p className="mt-2 text-lg font-bold text-slate-800 dark:text-white">
                     {transactions.length
                       ? [...transactions].sort((a, b) => b.total - a.total)[0].productName
                       : 'No sales yet'}
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-950/30">
-                  <p className="text-sm text-amber-700 dark:text-amber-200">Products Below Min Stock</p>
-                  <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-slate-100">{stats.lowStockCount}</p>
+                <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 p-4 dark:from-amber-900/20 dark:to-orange-900/15">
+                  <p className="text-sm text-amber-700 dark:text-amber-200">Low Stock Alerts</p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{stats.lowStockCount}</p>
                 </div>
               </div>
             </div>
@@ -702,48 +730,77 @@ function App() {
         )}
 
         {activeTab === 'transactions' && (
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-soft dark:border-slate-700 dark:bg-slate-900">
-            <div className="p-5">
+          <section className="space-y-6">
+            <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Recent Transactions</h2>
-                <span className="text-sm text-slate-500 dark:text-slate-400">Total revenue: {formatRupiah(totalRevenue)}</span>
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 dark:text-white">Revenue Trend</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Last 7 days performance</p>
+                </div>
+                <span className="rounded-full bg-pink-100 px-2.5 py-1 text-xs font-semibold text-pink-700 dark:bg-pink-900/40 dark:text-pink-200">
+                  {formatRupiah(totalRevenue)} total
+                </span>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                  <thead className="bg-slate-50 dark:bg-slate-800">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {recentTransactions.length === 0 ? (
+              <div className="mt-4 flex h-56 items-end gap-3">
+                {salesChartData.map((day) => (
+                  <div key={day.key} className="flex flex-1 flex-col items-center justify-end gap-2">
+                    <div className="flex h-40 w-full items-end justify-center">
+                      <div
+                        className="w-full rounded-t-2xl bg-gradient-to-t from-pink-600 via-violet-500 to-rose-400 shadow-lg shadow-pink-500/20"
+                        style={{ height: `${Math.max((day.value / chartMaxValue) * 100, 8)}%` }}
+                        title={`${day.label}: ${formatRupiah(day.value)}`}
+                      />
+                    </div>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{day.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-pink-100 bg-white shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
+              <div className="p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-black text-slate-800 dark:text-white">Recent Transactions</h2>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">Total revenue: {formatRupiah(totalRevenue)}</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-pink-100 dark:divide-pink-500/20">
+                    <thead className="bg-pink-50/80 dark:bg-slate-800/80">
                       <tr>
-                        <td colSpan="6" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-                          Belum ada transaksi.
-                        </td>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ID</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</th>
                       </tr>
-                    ) : (
-                      recentTransactions.map((tx) => (
-                        <tr key={tx.id} className="dark:hover:bg-slate-800/60">
-                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.id}</td>
-                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.productName}</td>
-                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.quantity}</td>
-                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.customer}</td>
-                          <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRupiah(tx.total)}</td>
-                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
-                            {new Date(tx.createdAt).toLocaleString('id-ID')}
+                    </thead>
+                    <tbody className="divide-y divide-pink-100 dark:divide-pink-500/20">
+                      {recentTransactions.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                            Belum ada transaksi.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        recentTransactions.map((tx) => (
+                          <tr key={tx.id} className="dark:hover:bg-slate-800/60">
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.id}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.productName}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.quantity}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.customer}</td>
+                            <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRupiah(tx.total)}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                              {new Date(tx.createdAt).toLocaleString('id-ID')}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </section>
@@ -751,10 +808,10 @@ function App() {
       </div>
 
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-pink-100 bg-white p-6 shadow-2xl dark:border-pink-500/20 dark:bg-slate-900">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+              <h2 className="text-xl font-black text-slate-800 dark:text-white">
                 {editingProduct ? 'Edit Produk' : 'Tambah Produk Baru'}
               </h2>
               <button
@@ -775,7 +832,7 @@ function App() {
                     name="id"
                     value={formData.id}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.id ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.id ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   />
                   {formErrors.id && <p className="mt-1 text-xs text-red-500">{formErrors.id}</p>}
                 </div>
@@ -787,7 +844,7 @@ function App() {
                     name="name"
                     value={formData.name}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.name ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.name ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   />
                   {formErrors.name && <p className="mt-1 text-xs text-red-500">{formErrors.name}</p>}
                 </div>
@@ -798,9 +855,9 @@ function App() {
                     name="category"
                     value={formData.category}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.category ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.category ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   >
-                    {window.APP_DATA.categories.map((category) => (
+                    {CATEGORIES.map((category) => (
                       <option key={category} value={category}>{category}</option>
                     ))}
                   </select>
@@ -814,7 +871,7 @@ function App() {
                     name="unit"
                     value={formData.unit}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.unit ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.unit ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   />
                   {formErrors.unit && <p className="mt-1 text-xs text-red-500">{formErrors.unit}</p>}
                 </div>
@@ -827,7 +884,7 @@ function App() {
                     min="1"
                     value={formData.price}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.price ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.price ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   />
                   {formErrors.price && <p className="mt-1 text-xs text-red-500">{formErrors.price}</p>}
                 </div>
@@ -840,20 +897,21 @@ function App() {
                     min="0"
                     value={formData.stock}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.stock ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.stock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   />
                   {formErrors.stock && <p className="mt-1 text-xs text-red-500">{formErrors.stock}</p>}
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Minimal Stok</label>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Minimum Stok (opsional)</label>
                   <input
                     type="number"
                     name="minStock"
                     min="0"
                     value={formData.minStock}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.minStock ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                    placeholder="Kosongkan bila tidak diperlukan"
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.minStock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
                   />
                   {formErrors.minStock && <p className="mt-1 text-xs text-red-500">{formErrors.minStock}</p>}
                 </div>
@@ -861,7 +919,7 @@ function App() {
                 <div className="md:col-span-2">
                   <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Gambar Produk</label>
                   <div className="flex items-center gap-4">
-                    <div className="h-20 w-20 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+                    <div className="h-20 w-20 overflow-hidden rounded-xl border border-pink-100 bg-slate-50 dark:border-pink-500/20 dark:bg-slate-800">
                       {formData.image ? (
                         <img src={formData.image} alt="Preview" className="h-full w-full object-cover" />
                       ) : (
@@ -870,7 +928,7 @@ function App() {
                         </div>
                       )}
                     </div>
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-pink-100 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-200">
                       <Icon name="upload" size={16} />
                       Upload Gambar
                       <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
@@ -885,7 +943,7 @@ function App() {
                     value={formData.description}
                     onChange={handleFormInput}
                     rows="4"
-                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
                 </div>
               </div>
@@ -894,13 +952,13 @@ function App() {
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  className="rounded-xl border border-pink-100 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-200"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700"
+                  className="rounded-xl bg-gradient-to-r from-pink-600 to-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-105"
                 >
                   {editingProduct ? 'Simpan Perubahan' : 'Tambah Produk'}
                 </button>
@@ -911,14 +969,14 @@ function App() {
       )}
 
       {deleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-pink-100 bg-white p-6 shadow-2xl dark:border-pink-500/20 dark:bg-slate-900">
             <div className="mb-4 flex items-center gap-3">
               <div className="rounded-xl bg-red-100 p-2 text-red-600 dark:bg-red-900/30 dark:text-red-300">
                 <Icon name="trash-2" size={20} />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Hapus Produk</h3>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Hapus Produk</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Apakah Anda yakin ingin menghapus produk ini?</p>
               </div>
             </div>
@@ -927,7 +985,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setDeleteId(null)}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                className="rounded-xl border border-pink-100 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-200"
               >
                 Batal
               </button>
