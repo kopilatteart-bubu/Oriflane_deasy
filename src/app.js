@@ -1,0 +1,961 @@
+const { useState, useEffect, useMemo } = React;
+
+const STORAGE_KEYS = window.APP_DATA.storageKeys;
+const DEFAULT_PRODUCTS = window.APP_DATA.defaultProducts;
+const ALL_CATEGORIES = ['Semua', ...window.APP_DATA.categories];
+
+const EMPTY_FORM = {
+  id: '',
+  name: '',
+  category: 'Skincare',
+  price: '',
+  stock: '',
+  minStock: '5',
+  unit: 'pcs',
+  description: '',
+  image: ''
+};
+
+const safeNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const formatRupiah = (value) =>
+  new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0
+  }).format(Math.max(0, safeNumber(value, 0)));
+
+const loadSavedValue = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return JSON.parse(raw);
+  } catch (error) {
+    return fallback;
+  }
+};
+
+const saveSavedValue = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn('Storage save failed:', error);
+  }
+};
+
+const Icon = ({ name, size = 18, className = '' }) => {
+  useEffect(() => {
+    if (window.lucide) window.lucide.createIcons();
+  }, [name, size, className]);
+
+  return (
+    <i
+      data-lucide={name}
+      style={{ width: size, height: size }}
+      className={`inline-block ${className}`}
+    ></i>
+  );
+};
+
+function App() {
+  const [products, setProducts] = useState(() => loadSavedValue(STORAGE_KEYS.inventory, DEFAULT_PRODUCTS));
+  const [transactions, setTransactions] = useState(() => loadSavedValue(STORAGE_KEYS.transactions, []));
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.theme);
+    return saved || 'light';
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('Semua');
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [deleteId, setDeleteId] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [formErrors, setFormErrors] = useState({});
+  const [saleForm, setSaleForm] = useState({
+    productId: '',
+    quantity: 1,
+    customer: ''
+  });
+  const [importInputKey, setImportInputKey] = useState(Date.now());
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    saveSavedValue(STORAGE_KEYS.theme, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    saveSavedValue(STORAGE_KEYS.inventory, products);
+  }, [products]);
+
+  useEffect(() => {
+    saveSavedValue(STORAGE_KEYS.transactions, transactions);
+  }, [transactions]);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(null), 2800);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    if (window.lucide) window.lucide.createIcons();
+  }, [products, isFormOpen, toast, activeTab]);
+
+  const categories = useMemo(() => {
+    const unique = [...new Set(products.map((item) => item.category).filter(Boolean))];
+    return ['Semua', ...unique];
+  }, [products]);
+
+  const stats = useMemo(() => {
+    const totalSKU = products.length;
+    const totalItems = products.reduce((sum, item) => sum + safeNumber(item.stock, 0), 0);
+    const totalValue = products.reduce((sum, item) => sum + safeNumber(item.price, 0) * safeNumber(item.stock, 0), 0);
+    const lowStockCount = products.filter((item) => safeNumber(item.stock, 0) <= safeNumber(item.minStock, 0)).length;
+
+    return { totalSKU, totalItems, totalValue, lowStockCount };
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return products.filter((product) => {
+      const nameMatches = !query || product.name.toLowerCase().includes(query);
+      const idMatches = !query || product.id.toLowerCase().includes(query);
+      const categoryMatches = selectedCategory === 'Semua' || product.category === selectedCategory;
+      return (nameMatches || idMatches) && categoryMatches;
+    });
+  }, [products, searchQuery, selectedCategory]);
+
+  const recentTransactions = useMemo(() =>
+    [...transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 6),
+    [transactions]);
+
+  const totalRevenue = useMemo(
+    () => transactions.reduce((sum, item) => sum + safeNumber(item.total, 0), 0),
+    [transactions]
+  );
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+  };
+
+  const validateProduct = (data) => {
+    const errors = {};
+    const trimmedId = data.id.trim();
+    const trimmedName = data.name.trim();
+    const trimmedCategory = data.category.trim();
+    const trimmedUnit = data.unit.trim();
+    const price = safeNumber(data.price, NaN);
+    const stock = safeNumber(data.stock, NaN);
+    const minStock = safeNumber(data.minStock, NaN);
+
+    if (!trimmedId) errors.id = 'ID produk wajib diisi.';
+    if (!trimmedName) errors.name = 'Nama produk wajib diisi.';
+    if (!trimmedCategory) errors.category = 'Kategori wajib diisi.';
+    if (!trimmedUnit) errors.unit = 'Satuan wajib diisi.';
+    if (!Number.isFinite(price) || price <= 0) errors.price = 'Harga harus lebih dari 0.';
+    if (!Number.isFinite(stock) || stock < 0) errors.stock = 'Stok tidak boleh negatif.';
+    if (!Number.isFinite(minStock) || minStock < 0) errors.minStock = 'Minimal stok tidak boleh negatif.';
+    if (Number.isFinite(stock) && Number.isFinite(minStock) && stock < minStock) {
+      errors.stock = 'Stok tidak boleh lebih kecil dari minimum stok.';
+    }
+
+    return errors;
+  };
+
+  const openCreateForm = () => {
+    setEditingProduct(null);
+    setFormData({ ...EMPTY_FORM });
+    setFormErrors({});
+    setIsFormOpen(true);
+  };
+
+  const openEditForm = (product) => {
+    setEditingProduct(product);
+    setFormData({
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      price: String(product.price),
+      stock: String(product.stock),
+      minStock: String(product.minStock),
+      unit: product.unit,
+      description: product.description || '',
+      image: product.image || ''
+    });
+    setFormErrors({});
+    setIsFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setIsFormOpen(false);
+    setEditingProduct(null);
+    setFormData({ ...EMPTY_FORM });
+    setFormErrors({});
+  };
+
+  const handleFormInput = (event) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormErrors((prev) => ({ ...prev, [name]: '' }));
+  };
+
+  const handleImageUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('File harus berupa gambar.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormData((prev) => ({ ...prev, image: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProduct = (event) => {
+    event.preventDefault();
+
+    const errors = validateProduct(formData);
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      showToast('Harap periksa form sebelum menyimpan.', 'error');
+      return;
+    }
+
+    const normalized = {
+      id: formData.id.trim().toUpperCase(),
+      name: formData.name.trim(),
+      category: formData.category.trim(),
+      price: safeNumber(formData.price, 0),
+      stock: safeNumber(formData.stock, 0),
+      minStock: safeNumber(formData.minStock, 0),
+      unit: formData.unit.trim() || 'pcs',
+      description: formData.description.trim(),
+      image: formData.image || ''
+    };
+
+    const duplicateExists = products.some((item) => {
+      if (editingProduct && item.id === editingProduct.id) return false;
+      return item.id.toUpperCase() === normalized.id.toUpperCase();
+    });
+
+    if (duplicateExists) {
+      setFormErrors((prev) => ({ ...prev, id: 'ID produk sudah digunakan.' }));
+      showToast('ID produk sudah digunakan.', 'error');
+      return;
+    }
+
+    setProducts((prev) => {
+      if (editingProduct) {
+        return prev.map((item) => (item.id === editingProduct.id ? normalized : item));
+      }
+      return [normalized, ...prev];
+    });
+
+    closeForm();
+    showToast(editingProduct ? 'Produk berhasil diperbarui.' : 'Produk berhasil ditambahkan.');
+  };
+
+  const handleQuickStock = (id, delta) => {
+    setProducts((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const nextStock = Math.max(0, safeNumber(item.stock, 0) + delta);
+        return { ...item, stock: nextStock };
+      })
+    );
+  };
+
+  const handleDeleteProduct = (id) => {
+    setProducts((prev) => prev.filter((item) => item.id !== id));
+    setDeleteId(null);
+    showToast('Produk berhasil dihapus.');
+  };
+
+  const handleRecordSale = (event) => {
+    event.preventDefault();
+    const product = products.find((item) => item.id === saleForm.productId);
+
+    if (!product) {
+      showToast('Pilih produk terlebih dahulu.', 'error');
+      return;
+    }
+
+    const quantity = safeNumber(saleForm.quantity, 0);
+    if (quantity <= 0) {
+      showToast('Jumlah penjualan harus lebih dari 0.', 'error');
+      return;
+    }
+
+    if (quantity > safeNumber(product.stock, 0)) {
+      showToast('Stok tidak cukup untuk transaksi ini.', 'error');
+      return;
+    }
+
+    const total = product.price * quantity;
+    const newTransaction = {
+      id: `TRX-${Date.now()}`,
+      productId: product.id,
+      productName: product.name,
+      quantity,
+      unitPrice: product.price,
+      total,
+      customer: saleForm.customer.trim() || 'Walk-in Customer',
+      createdAt: new Date().toISOString()
+    };
+
+    setTransactions((prev) => [newTransaction, ...prev]);
+    setProducts((prev) =>
+      prev.map((item) =>
+        item.id === product.id ? { ...item, stock: safeNumber(item.stock, 0) - quantity } : item
+      )
+    );
+    setSaleForm({ productId: '', quantity: 1, customer: '' });
+    showToast('Transaksi berhasil dicatat.');
+  };
+
+  const exportInventory = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      products,
+      transactions
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'oriflame-inventory-export.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+    showToast('Inventaris berhasil diekspor.');
+  };
+
+  const importInventory = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        const incomingProducts = Array.isArray(parsed.products) ? parsed.products : Array.isArray(parsed) ? parsed : [];
+
+        if (!incomingProducts.length) {
+          showToast('File impor tidak berisi data produk.', 'error');
+          return;
+        }
+
+        setProducts(incomingProducts);
+        if (Array.isArray(parsed.transactions)) {
+          setTransactions(parsed.transactions);
+        }
+        setImportInputKey(Date.now());
+        showToast('Inventaris berhasil diimpor.');
+      } catch (error) {
+        showToast('Format file impor tidak valid.', 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100">
+      <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 lg:px-8">
+        <header className="mb-6 rounded-3xl border border-slate-200 bg-white/80 p-5 shadow-soft backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/80">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">Inventory Dashboard</p>
+              <h1 className="mt-1 text-2xl font-bold text-slate-800 dark:text-slate-100 md:text-3xl">Oriflame Inventory System</h1>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              >
+                <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
+                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </button>
+
+              <button
+                type="button"
+                onClick={openCreateForm}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+              >
+                <Icon name="plus" size={16} />
+                Tambah Produk
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <nav className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+          {[
+            { id: 'inventory', label: 'Inventory', icon: 'box' },
+            { id: 'sales', label: 'Sales', icon: 'shopping-cart' },
+            { id: 'transactions', label: 'Transactions', icon: 'receipt' }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                activeTab === tab.id
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Icon name={tab.icon} size={16} />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === 'inventory' && (
+          <>
+            <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: 'Total SKU', value: stats.totalSKU, icon: 'package', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200' },
+                { label: 'Total Item', value: stats.totalItems, icon: 'layers', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-200' },
+                { label: 'Nilai Stok', value: formatRupiah(stats.totalValue), icon: 'wallet', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200' },
+                { label: 'Low Stock', value: stats.lowStockCount, icon: 'alert-triangle', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200' }
+              ].map((card) => (
+                <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{card.label}</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-slate-100">{card.value}</p>
+                    </div>
+                    <div className={`rounded-xl p-2 ${card.color}`}>
+                      <Icon name={card.icon} size={20} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="relative w-full max-w-md">
+                  <Icon name="search" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cari nama atau ID..."
+                    className="input-shell w-full rounded-xl border bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {categories.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => setSelectedCategory(category)}
+                      className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                        selectedCategory === category
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="mb-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={exportInventory}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <Icon name="download" size={16} />
+                Export Inventory
+              </button>
+
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                <Icon name="upload" size={16} />
+                Import Inventory
+                <input key={importInputKey} type="file" accept="application/json" className="hidden" onChange={importInventory} />
+              </label>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft dark:border-slate-700 dark:bg-slate-900">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kategori</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Harga</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Stok</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900">
+                    {filteredProducts.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
+                          Tidak ada produk yang cocok dengan filter saat ini.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredProducts.map((product) => {
+                        const isLowStock = safeNumber(product.stock, 0) <= safeNumber(product.minStock, 0);
+
+                        return (
+                          <tr key={product.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/70">
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="h-14 w-14 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-sky-100 to-violet-100 dark:border-slate-700 dark:from-sky-900 dark:to-violet-900">
+                                  {product.image ? (
+                                    <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-slate-500 dark:text-slate-200">
+                                      <Icon name="image" size={20} />
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-slate-800 dark:text-slate-100">{product.name}</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">{product.id}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-300">{product.category}</td>
+                            <td className="px-4 py-4 text-sm font-medium text-slate-800 dark:text-slate-100">{formatRupiah(product.price)}</td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickStock(product.id, -1)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  aria-label={`Kurangi stok ${product.name}`}
+                                >
+                                  <Icon name="minus" size={14} />
+                                </button>
+                                <span className="min-w-12 text-center text-sm font-semibold text-slate-800 dark:text-slate-100">{product.stock}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickStock(product.id, 1)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  aria-label={`Tambah stok ${product.name}`}
+                                >
+                                  <Icon name="plus" size={14} />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                  isLowStock ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200'
+                                }`}
+                              >
+                                {isLowStock ? 'Low Stock' : 'Healthy'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditForm(product)}
+                                  className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  aria-label={`Edit ${product.name}`}
+                                >
+                                  <Icon name="pencil" size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteId(product.id)}
+                                  className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300"
+                                  aria-label={`Hapus ${product.name}`}
+                                >
+                                  <Icon name="trash-2" size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+
+        {activeTab === 'sales' && (
+          <section className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Create Sale</h2>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                  {transactions.length} transactions
+                </span>
+              </div>
+
+              <form onSubmit={handleRecordSale} className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Produk</label>
+                  <select
+                    value={saleForm.productId}
+                    onChange={(e) => setSaleForm((prev) => ({ ...prev, productId: e.target.value }))}
+                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="">Pilih produk</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} ({product.stock} stok)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Jumlah</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={saleForm.quantity}
+                    onChange={(e) => setSaleForm((prev) => ({ ...prev, quantity: safeNumber(e.target.value, 1) }))}
+                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Nama Pelanggan</label>
+                  <input
+                    type="text"
+                    value={saleForm.customer}
+                    onChange={(e) => setSaleForm((prev) => ({ ...prev, customer: e.target.value }))}
+                    placeholder="Walk-in Customer"
+                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                  />
+                </div>
+
+                {saleForm.productId && (
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800">
+                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                      <span>Harga satuan</span>
+                      <strong className="text-slate-800 dark:text-slate-100">
+                        {formatRupiah(products.find((item) => item.id === saleForm.productId)?.price || 0)}
+                      </strong>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-slate-600 dark:text-slate-300">
+                      <span>Estimasi total</span>
+                      <strong className="text-slate-800 dark:text-slate-100">
+                        {formatRupiah((products.find((item) => item.id === saleForm.productId)?.price || 0) * safeNumber(saleForm.quantity, 1))}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                >
+                  Simpan Transaksi
+                </button>
+              </form>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-xl font-bold text-slate-800 dark:text-slate-100">Sales Summary</h2>
+
+              <div className="space-y-3">
+                <div className="rounded-xl bg-sky-50 p-4 dark:bg-sky-950/30">
+                  <p className="text-sm text-sky-700 dark:text-sky-200">Total Revenue</p>
+                  <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-slate-100">{formatRupiah(totalRevenue)}</p>
+                </div>
+
+                <div className="rounded-xl bg-violet-50 p-4 dark:bg-violet-950/30">
+                  <p className="text-sm text-violet-700 dark:text-violet-200">Best Selling</p>
+                  <p className="mt-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                    {transactions.length
+                      ? [...transactions].sort((a, b) => b.total - a.total)[0].productName
+                      : 'No sales yet'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-950/30">
+                  <p className="text-sm text-amber-700 dark:text-amber-200">Products Below Min Stock</p>
+                  <p className="mt-2 text-2xl font-bold text-slate-800 dark:text-slate-100">{stats.lowStockCount}</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'transactions' && (
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-soft dark:border-slate-700 dark:bg-slate-900">
+            <div className="p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Recent Transactions</h2>
+                <span className="text-sm text-slate-500 dark:text-slate-400">Total revenue: {formatRupiah(totalRevenue)}</span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                  <thead className="bg-slate-50 dark:bg-slate-800">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ID</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                    {recentTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                          Belum ada transaksi.
+                        </td>
+                      </tr>
+                    ) : (
+                      recentTransactions.map((tx) => (
+                        <tr key={tx.id} className="dark:hover:bg-slate-800/60">
+                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.id}</td>
+                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.productName}</td>
+                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.quantity}</td>
+                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.customer}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRupiah(tx.total)}</td>
+                          <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                            {new Date(tx.createdAt).toLocaleString('id-ID')}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+      </div>
+
+      {isFormOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+                {editingProduct ? 'Edit Produk' : 'Tambah Produk Baru'}
+              </h2>
+              <button
+                type="button"
+                onClick={closeForm}
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProduct} className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">ID Produk</label>
+                  <input
+                    type="text"
+                    name="id"
+                    value={formData.id}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.id ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  />
+                  {formErrors.id && <p className="mt-1 text-xs text-red-500">{formErrors.id}</p>}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Nama Produk</label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.name ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  />
+                  {formErrors.name && <p className="mt-1 text-xs text-red-500">{formErrors.name}</p>}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Kategori</label>
+                  <select
+                    name="category"
+                    value={formData.category}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.category ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  >
+                    {window.APP_DATA.categories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  {formErrors.category && <p className="mt-1 text-xs text-red-500">{formErrors.category}</p>}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Satuan</label>
+                  <input
+                    type="text"
+                    name="unit"
+                    value={formData.unit}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.unit ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  />
+                  {formErrors.unit && <p className="mt-1 text-xs text-red-500">{formErrors.unit}</p>}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Harga</label>
+                  <input
+                    type="number"
+                    name="price"
+                    min="1"
+                    value={formData.price}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.price ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  />
+                  {formErrors.price && <p className="mt-1 text-xs text-red-500">{formErrors.price}</p>}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Stok</label>
+                  <input
+                    type="number"
+                    name="stock"
+                    min="0"
+                    value={formData.stock}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.stock ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  />
+                  {formErrors.stock && <p className="mt-1 text-xs text-red-500">{formErrors.stock}</p>}
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Minimal Stok</label>
+                  <input
+                    type="number"
+                    name="minStock"
+                    min="0"
+                    value={formData.minStock}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.minStock ? 'border-red-300' : 'border-slate-200 focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100'}`}
+                  />
+                  {formErrors.minStock && <p className="mt-1 text-xs text-red-500">{formErrors.minStock}</p>}
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Gambar Produk</label>
+                  <div className="flex items-center gap-4">
+                    <div className="h-20 w-20 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+                      {formData.image ? (
+                        <img src={formData.image} alt="Preview" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-slate-400">
+                          <Icon name="image" size={24} />
+                        </div>
+                      )}
+                    </div>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                      <Icon name="upload" size={16} />
+                      Upload Gambar
+                      <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Deskripsi</label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleFormInput}
+                    rows="4"
+                    className="input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-sky-400 focus:bg-white dark:bg-slate-800 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700"
+                >
+                  {editingProduct ? 'Simpan Perubahan' : 'Tambah Produk'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="rounded-xl bg-red-100 p-2 text-red-600 dark:bg-red-900/30 dark:text-red-300">
+                <Icon name="trash-2" size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Hapus Produk</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Apakah Anda yakin ingin menghapus produk ini?</p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteId(null)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteProduct(deleteId)}
+                className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-red-700"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-[60]">
+          <div
+            className={`rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${
+              toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+            }`}
+          >
+            {toast.message}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
