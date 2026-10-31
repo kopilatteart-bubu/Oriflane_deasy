@@ -12,6 +12,7 @@ const EMPTY_FORM = {
   name: '',
   category: 'Skincare',
   price: '',
+  costPrice: '',
   stock: '',
   minStock: '',
   unit: 'pcs',
@@ -165,6 +166,18 @@ function App() {
     [transactions]
   );
 
+  const totalCost = useMemo(
+    () => transactions.reduce((sum, tx) => sum + safeNumber(tx.totalCost, 0), 0),
+    [transactions]
+  );
+
+  const totalProfit = useMemo(
+    () => transactions.reduce((sum, tx) => sum + safeNumber(tx.profit, 0), 0),
+    [transactions]
+  );
+
+  const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
   };
@@ -172,6 +185,7 @@ function App() {
   const validateProduct = (data) => {
     const errors = {};
     const price = safeNumber(data.price, Number.NaN);
+    const costPrice = safeNumber(data.costPrice, Number.NaN);
     const stock = safeNumber(data.stock, Number.NaN);
     const minStock = data.minStock === '' ? undefined : safeNumber(data.minStock, Number.NaN);
 
@@ -179,13 +193,17 @@ function App() {
     if (!data.name.trim()) errors.name = 'Nama produk wajib diisi.';
     if (!data.category.trim()) errors.category = 'Kategori wajib diisi.';
     if (!data.unit.trim()) errors.unit = 'Satuan wajib diisi.';
-    if (!Number.isFinite(price) || price <= 0) errors.price = 'Harga harus lebih dari 0.';
+    if (!Number.isFinite(price) || price <= 0) errors.price = 'Harga jual harus lebih dari 0.';
+    if (!Number.isFinite(costPrice) || costPrice < 0) errors.costPrice = 'Harga perolehan tidak valid.';
     if (!Number.isFinite(stock) || stock < 0) errors.stock = 'Stok tidak boleh negatif.';
     if (minStock !== undefined && (!Number.isFinite(minStock) || minStock < 0)) {
       errors.minStock = 'Minimum stok tidak valid.';
     }
     if (Number.isFinite(stock) && minStock !== undefined && Number.isFinite(minStock) && stock < minStock) {
       errors.stock = 'Stok tidak boleh lebih kecil dari minimum stok.';
+    }
+    if (Number.isFinite(price) && Number.isFinite(costPrice) && costPrice > price) {
+      errors.costPrice = 'Harga perolehan tidak boleh lebih besar dari harga jual.';
     }
 
     return errors;
@@ -205,6 +223,7 @@ function App() {
       name: product.name,
       category: product.category,
       price: String(product.price),
+      costPrice: String(product.costPrice ?? ''),
       stock: String(product.stock),
       minStock: product.minStock === undefined || product.minStock === null ? '' : String(product.minStock),
       unit: product.unit,
@@ -256,6 +275,7 @@ function App() {
       name: formData.name.trim(),
       category: formData.category.trim(),
       price: safeNumber(formData.price, 0),
+      costPrice: safeNumber(formData.costPrice, 0),
       stock: safeNumber(formData.stock, 0),
       minStock: formData.minStock === '' ? 0 : safeNumber(formData.minStock, 0),
       unit: formData.unit.trim() || 'pcs',
@@ -321,7 +341,11 @@ function App() {
       return;
     }
 
-    const total = product.price * quantity;
+    const sellingPrice = safeNumber(product.price, 0);
+    const costPrice = safeNumber(product.costPrice, 0);
+    const total = sellingPrice * quantity;
+    const totalCostValue = costPrice * quantity;
+    const profit = total - totalCostValue;
     const customerName = saleForm.customer.trim() || 'Walk-in Customer';
     const customerPhone = saleForm.phone.trim();
     const customerEmail = saleForm.email.trim();
@@ -331,8 +355,11 @@ function App() {
       productId: product.id,
       productName: product.name,
       quantity,
-      unitPrice: product.price,
+      unitPrice: sellingPrice,
+      costPrice,
+      totalCost: totalCostValue,
       total,
+      profit,
       customer: customerName,
       customerPhone,
       customerEmail,
@@ -528,7 +555,8 @@ function App() {
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kategori</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Harga</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Perolehan</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Jual</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Stok</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Aksi</th>
@@ -537,7 +565,7 @@ function App() {
                   <tbody className="divide-y divide-pink-100 bg-white dark:divide-pink-500/20 dark:bg-slate-900">
                     {filteredProducts.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
+                        <td colSpan="7" className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
                           Tidak ada produk yang cocok dengan filter saat ini.
                         </td>
                       </tr>
@@ -545,6 +573,7 @@ function App() {
                       filteredProducts.map((product) => {
                         const minStockValue = safeNumber(product.minStock, 0);
                         const isLowStock = minStockValue > 0 && safeNumber(product.stock, 0) <= minStockValue;
+                        const profitPotential = safeNumber(product.price, 0) - safeNumber(product.costPrice, 0);
 
                         return (
                           <tr key={product.id} className="hover:bg-pink-50/50 dark:hover:bg-slate-800/70">
@@ -566,6 +595,7 @@ function App() {
                               </div>
                             </td>
                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-300">{product.category}</td>
+                            <td className="px-4 py-4 text-sm text-slate-700 dark:text-slate-200">{formatRupiah(product.costPrice ?? 0)}</td>
                             <td className="px-4 py-4 text-sm font-medium text-slate-800 dark:text-slate-100">{formatRupiah(product.price)}</td>
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-2">
@@ -593,10 +623,12 @@ function App() {
                                 className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
                                   isLowStock
                                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200'
-                                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                                    : profitPotential >= 0
+                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                                      : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200'
                                 }`}
                               >
-                                {isLowStock ? 'Low Stock' : minStockValue > 0 ? 'Tracked' : 'No Min'}
+                                {isLowStock ? 'Low Stock' : profitPotential >= 0 ? 'Profit' : 'Loss'}
                               </span>
                             </td>
                             <td className="px-4 py-4">
@@ -708,18 +740,38 @@ function App() {
 
                 {saleForm.productId && (
                   <div className="rounded-xl bg-pink-50 p-3 text-sm dark:bg-pink-950/20">
-                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                      <span>Harga satuan</span>
-                      <strong className="text-slate-800 dark:text-slate-100">
-                        {formatRupiah(products.find((item) => item.id === saleForm.productId)?.price || 0)}
-                      </strong>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-slate-600 dark:text-slate-300">
-                      <span>Estimasi total</span>
-                      <strong className="text-slate-800 dark:text-slate-100">
-                        {formatRupiah((products.find((item) => item.id === saleForm.productId)?.price || 0) * safeNumber(saleForm.quantity, 1))}
-                      </strong>
-                    </div>
+                    {(() => {
+                      const selectedProduct = products.find((item) => item.id === saleForm.productId) || null;
+                      const selectedQty = safeNumber(saleForm.quantity, 1);
+                      const sellingPrice = safeNumber(selectedProduct?.price, 0);
+                      const costPrice = safeNumber(selectedProduct?.costPrice, 0);
+                      const total = sellingPrice * selectedQty;
+                      const totalCostValue = costPrice * selectedQty;
+                      const profitValue = total - totalCostValue;
+
+                      return (
+                        <>
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Harga jual</span>
+                            <strong className="text-slate-800 dark:text-slate-100">{formatRupiah(sellingPrice)}</strong>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Harga perolehan</span>
+                            <strong className="text-slate-800 dark:text-slate-100">{formatRupiah(costPrice)}</strong>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Estimasi total</span>
+                            <strong className="text-slate-800 dark:text-slate-100">{formatRupiah(total)}</strong>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Estimasi profit</span>
+                            <strong className={profitValue >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>
+                              {formatRupiah(profitValue)}
+                            </strong>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -733,12 +785,25 @@ function App() {
             </div>
 
             <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
-              <h2 className="mb-4 text-xl font-black text-slate-800 dark:text-white">Sales Summary</h2>
+              <h2 className="mb-4 text-xl font-black text-slate-800 dark:text-white">Profit / Loss</h2>
 
               <div className="space-y-3">
                 <div className="rounded-xl bg-gradient-to-r from-pink-50 to-violet-50 p-4 dark:from-pink-900/20 dark:to-violet-900/15">
                   <p className="text-sm text-pink-700 dark:text-pink-200">Total Revenue</p>
                   <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalRevenue)}</p>
+                </div>
+
+                <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 p-4 dark:from-amber-900/20 dark:to-orange-900/15">
+                  <p className="text-sm text-amber-700 dark:text-amber-200">Total Cost</p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalCost)}</p>
+                </div>
+
+                <div className={`rounded-xl bg-gradient-to-r ${totalProfit >= 0 ? 'from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/15' : 'from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/15'} p-4`}>
+                  <p className={`text-sm ${totalProfit >= 0 ? 'text-emerald-700 dark:text-emerald-200' : 'text-red-700 dark:text-red-200'}`}>
+                    {totalProfit >= 0 ? 'Net Profit' : 'Net Loss'}
+                  </p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalProfit)}</p>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Margin {Math.abs(profitMargin).toFixed(1)}%</p>
                 </div>
 
                 <div className="rounded-xl bg-gradient-to-r from-violet-50 to-fuchsia-50 p-4 dark:from-violet-900/20 dark:to-fuchsia-900/15">
@@ -748,11 +813,6 @@ function App() {
                       ? [...transactions].sort((a, b) => b.total - a.total)[0].productName
                       : 'No sales yet'}
                   </p>
-                </div>
-
-                <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 p-4 dark:from-amber-900/20 dark:to-orange-900/15">
-                  <p className="text-sm text-amber-700 dark:text-amber-200">Low Stock Alerts</p>
-                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{stats.lowStockCount}</p>
                 </div>
               </div>
             </div>
@@ -764,11 +824,11 @@ function App() {
             <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-black text-slate-800 dark:text-white">Revenue Trend</h2>
+                  <h2 className="text-xl font-black text-slate-800 dark:text-white">Profit / Loss Summary</h2>
                   <p className="text-sm text-slate-500 dark:text-slate-400">Last 7 days performance</p>
                 </div>
-                <span className="rounded-full bg-pink-100 px-2.5 py-1 text-xs font-semibold text-pink-700 dark:bg-pink-900/40 dark:text-pink-200">
-                  {formatRupiah(totalRevenue)} total
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${totalProfit >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200' : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200'}`}>
+                  {totalProfit >= 0 ? 'Profit' : 'Loss'} {formatRupiah(totalProfit)}
                 </span>
               </div>
 
@@ -792,7 +852,7 @@ function App() {
               <div className="p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-black text-slate-800 dark:text-white">Recent Transactions</h2>
-                  <span className="text-sm text-slate-500 dark:text-slate-400">Total revenue: {formatRupiah(totalRevenue)}</span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">Revenue: {formatRupiah(totalRevenue)} | Cost: {formatRupiah(totalCost)} | Profit: {formatRupiah(totalProfit)}</span>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -804,6 +864,8 @@ function App() {
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kontak</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">HPP</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Profit</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</th>
                       </tr>
@@ -811,7 +873,7 @@ function App() {
                     <tbody className="divide-y divide-pink-100 dark:divide-pink-500/20">
                       {recentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                          <td colSpan="9" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                             Belum ada transaksi.
                           </td>
                         </tr>
@@ -828,6 +890,10 @@ function App() {
                                 {tx.customerEmail && <span>{tx.customerEmail}</span>}
                                 {!tx.customerPhone && !tx.customerEmail && <span>-</span>}
                               </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{formatRupiah(tx.totalCost)}</td>
+                            <td className={`px-4 py-3 text-sm font-semibold ${safeNumber(tx.profit, 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {formatRupiah(tx.profit)}
                             </td>
                             <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRupiah(tx.total)}</td>
                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
@@ -915,7 +981,20 @@ function App() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Harga</label>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Harga Perolehan</label>
+                  <input
+                    type="number"
+                    name="costPrice"
+                    min="0"
+                    value={formData.costPrice}
+                    onChange={handleFormInput}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.costPrice ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
+                  />
+                  {formErrors.costPrice && <p className="mt-1 text-xs text-red-500">{formErrors.costPrice}</p>}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Harga Jual</label>
                   <input
                     type="number"
                     name="price"
@@ -940,15 +1019,15 @@ function App() {
                   {formErrors.stock && <p className="mt-1 text-xs text-red-500">{formErrors.stock}</p>}
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Minimum Stok (opsional)</label>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Minimum Stok</label>
                   <input
                     type="number"
                     name="minStock"
                     min="0"
                     value={formData.minStock}
                     onChange={handleFormInput}
-                    placeholder="Kosongkan bila tidak diperlukan"
+                    placeholder="Opsional"
                     className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.minStock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.minStock && <p className="mt-1 text-xs text-red-500">{formErrors.minStock}</p>}
