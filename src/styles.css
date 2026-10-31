@@ -22,10 +22,33 @@ img {
   background-color: #f8fafc;
   border-color: rgba(244, 114, 182, 0.25);
   color: #0f172a;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
 .input-shell::placeholder {
   color: #64748b;
+}
+
+.input-shell:focus,
+.input-shell:focus-visible {
+  border-color: rgba(236, 72, 153, 0.7);
+  background-color: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.12);
+  outline: none;
+}
+
+.input-shell option {
+  color: #0f172a;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #0f172a !important;
+  -webkit-box-shadow: 0 0 0 1000px #f8fafc inset !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 .dark .table-shell {
@@ -50,6 +73,22 @@ img {
 
 .dark .input-shell::placeholder {
   color: #94a3b8;
+}
+
+.dark .input-shell:focus,
+.dark .input-shell:focus-visible {
+  border-color: rgba(216, 180, 254, 0.8);
+  background-color: rgba(15, 23, 42, 0.9);
+  color: #f8fafc;
+  box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.14);
+}
+
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus,
+.dark input:-webkit-autofill:active {
+  -webkit-text-fill-color: #f8fafc !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(15, 23, 42, 0.8) inset !important;
 }
 
 .dark .muted {
