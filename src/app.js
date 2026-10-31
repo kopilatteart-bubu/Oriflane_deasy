@@ -76,7 +76,7 @@ function App() {
   const [toast, setToast] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [formErrors, setFormErrors] = useState({});
-  const [saleForm, setSaleForm] = useState({ productId: '', quantity: 1, customer: '' });
+  const [saleForm, setSaleForm] = useState({ productId: '', quantity: 1, customer: '', phone: '', email: '' });
   const [importInputKey, setImportInputKey] = useState(Date.now());
 
   useEffect(() => {
@@ -322,6 +322,10 @@ function App() {
     }
 
     const total = product.price * quantity;
+    const customerName = saleForm.customer.trim() || 'Walk-in Customer';
+    const customerPhone = saleForm.phone.trim();
+    const customerEmail = saleForm.email.trim();
+
     const newTransaction = {
       id: `TRX-${Date.now()}`,
       productId: product.id,
@@ -329,7 +333,9 @@ function App() {
       quantity,
       unitPrice: product.price,
       total,
-      customer: saleForm.customer.trim() || 'Walk-in Customer',
+      customer: customerName,
+      customerPhone,
+      customerEmail,
       createdAt: new Date().toISOString()
     };
 
@@ -337,7 +343,7 @@ function App() {
     setProducts((prev) =>
       prev.map((item) => (item.id === product.id ? { ...item, stock: safeNumber(item.stock, 0) - quantity } : item))
     );
-    setSaleForm({ productId: '', quantity: 1, customer: '' });
+    setSaleForm({ productId: '', quantity: 1, customer: '', phone: '', email: '' });
     showToast('Transaksi berhasil dicatat.');
   };
 
@@ -385,7 +391,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(244,114,182,0.18),transparent_28%),linear-gradient(135deg,#f8fafc_0%,#fff1f2_28%,#f8fafc_100%)] text-slate-800 transition-colors duration-200 dark:bg-[radial-gradient(circle_at_top,_rgba(236,72,153,0.18),transparent_26%),linear-gradient(135deg,#0f172a_0%,#111827_52%,#020617_100%)] dark:text-slate-100">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(244,114,182,0.18),transparent_28%),linear-gradient(135deg,#f8fafc_0%,#fff1f2_28%,#f8fafc_100%)] text-slate-800 transition-colors duration-200 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 lg:px-8">
         <header className="brand-shell mb-6 rounded-[28px] border border-pink-100 p-6 shadow-soft dark:border-pink-500/20">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -403,7 +409,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-                className="inline-flex items-center gap-2 rounded-xl border border-pink-200 bg-white/90 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900/80 dark:text-pink-100"
+                className="inline-flex items-center gap-2 rounded-xl border border-pink-200 bg-white/90 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900/80 dark:text-slate-200"
               >
                 <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
                 {theme === 'dark' ? 'Light' : 'Dark'}
@@ -412,7 +418,7 @@ function App() {
               <button
                 type="button"
                 onClick={openCreateForm}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-pink-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 transition hover:scale-[1.01]"
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-pink-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 transition hover:brightness-105"
               >
                 <Icon name="plus" size={16} />
                 Tambah Produk
@@ -475,7 +481,7 @@ function App() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Cari nama atau ID..."
-                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-pink-400"
                   />
                 </div>
 
@@ -502,13 +508,13 @@ function App() {
               <button
                 type="button"
                 onClick={exportInventory}
-                className="inline-flex items-center gap-2 rounded-xl border border-pink-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900 dark:text-slate-200"
+                className="inline-flex items-center gap-2 rounded-xl border border-pink-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-200"
               >
                 <Icon name="download" size={16} />
                 Export Inventory
               </button>
 
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-pink-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-900 dark:text-slate-200">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-pink-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-200">
                 <Icon name="upload" size={16} />
                 Import Inventory
                 <input key={importInputKey} type="file" accept="application/json" className="hidden" onChange={importInventory} />
@@ -544,7 +550,7 @@ function App() {
                           <tr key={product.id} className="hover:bg-pink-50/50 dark:hover:bg-slate-800/70">
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-3">
-                                <div className="h-14 w-14 overflow-hidden rounded-xl border border-pink-100 bg-gradient-to-br from-pink-100 to-violet-100 dark:border-pink-500/20 dark:from-pink-900/30 dark:to-violet-900/30">
+                                <div className="h-14 w-14 overflow-hidden rounded-xl border border-pink-100 bg-gradient-to-br from-pink-100 to-violet-100 dark:border-pink-500/20 dark:from-pink-900/40 dark:to-violet-900/20">
                                   {product.image ? (
                                     <img src={product.image} alt={product.name} className="product-image h-full w-full" />
                                   ) : (
@@ -643,7 +649,7 @@ function App() {
                   <select
                     value={saleForm.productId}
                     onChange={(e) => setSaleForm((prev) => ({ ...prev, productId: e.target.value }))}
-                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <option value="">Pilih produk</option>
                     {products.map((product) => (
@@ -661,7 +667,7 @@ function App() {
                     min="1"
                     value={saleForm.quantity}
                     onChange={(e) => setSaleForm((prev) => ({ ...prev, quantity: safeNumber(e.target.value, 1) }))}
-                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
                 </div>
 
@@ -672,8 +678,32 @@ function App() {
                     value={saleForm.customer}
                     onChange={(e) => setSaleForm((prev) => ({ ...prev, customer: e.target.value }))}
                     placeholder="Walk-in Customer"
-                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Nomor Telepon</label>
+                    <input
+                      type="tel"
+                      value={saleForm.phone}
+                      onChange={(e) => setSaleForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      placeholder="Opsional"
+                      className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
+                    <input
+                      type="email"
+                      value={saleForm.email}
+                      onChange={(e) => setSaleForm((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="Opsional"
+                      className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
                 </div>
 
                 {saleForm.productId && (
@@ -773,6 +803,7 @@ function App() {
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kontak</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</th>
                       </tr>
@@ -780,7 +811,7 @@ function App() {
                     <tbody className="divide-y divide-pink-100 dark:divide-pink-500/20">
                       {recentTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                          <td colSpan="7" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                             Belum ada transaksi.
                           </td>
                         </tr>
@@ -791,6 +822,13 @@ function App() {
                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.productName}</td>
                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.quantity}</td>
                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{tx.customer}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                              <div className="flex flex-col">
+                                {tx.customerPhone && <span>{tx.customerPhone}</span>}
+                                {tx.customerEmail && <span>{tx.customerEmail}</span>}
+                                {!tx.customerPhone && !tx.customerEmail && <span>-</span>}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100">{formatRupiah(tx.total)}</td>
                             <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
                               {new Date(tx.createdAt).toLocaleString('id-ID')}
@@ -832,7 +870,7 @@ function App() {
                     name="id"
                     value={formData.id}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.id ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.id ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.id && <p className="mt-1 text-xs text-red-500">{formErrors.id}</p>}
                 </div>
@@ -844,7 +882,7 @@ function App() {
                     name="name"
                     value={formData.name}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.name ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.name ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.name && <p className="mt-1 text-xs text-red-500">{formErrors.name}</p>}
                 </div>
@@ -855,7 +893,7 @@ function App() {
                     name="category"
                     value={formData.category}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.category ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.category ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   >
                     {CATEGORIES.map((category) => (
                       <option key={category} value={category}>{category}</option>
@@ -871,7 +909,7 @@ function App() {
                     name="unit"
                     value={formData.unit}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.unit ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.unit ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.unit && <p className="mt-1 text-xs text-red-500">{formErrors.unit}</p>}
                 </div>
@@ -884,7 +922,7 @@ function App() {
                     min="1"
                     value={formData.price}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.price ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.price ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.price && <p className="mt-1 text-xs text-red-500">{formErrors.price}</p>}
                 </div>
@@ -897,7 +935,7 @@ function App() {
                     min="0"
                     value={formData.stock}
                     onChange={handleFormInput}
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.stock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.stock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.stock && <p className="mt-1 text-xs text-red-500">{formErrors.stock}</p>}
                 </div>
@@ -911,7 +949,7 @@ function App() {
                     value={formData.minStock}
                     onChange={handleFormInput}
                     placeholder="Kosongkan bila tidak diperlukan"
-                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm outline-none transition ${formErrors.minStock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'}`}
+                    className={`input-shell w-full rounded-xl border bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition ${formErrors.minStock ? 'border-red-300' : 'border-pink-100 focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100'} `}
                   />
                   {formErrors.minStock && <p className="mt-1 text-xs text-red-500">{formErrors.minStock}</p>}
                 </div>
@@ -943,7 +981,7 @@ function App() {
                     value={formData.description}
                     onChange={handleFormInput}
                     rows="4"
-                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                    className="input-shell w-full rounded-xl border border-pink-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
                   />
                 </div>
               </div>
