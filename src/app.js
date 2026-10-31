@@ -5,7 +5,6 @@ const DEFAULT_PRODUCTS = Array.isArray(window.APP_DATA.defaultProducts)
   ? window.APP_DATA.defaultProducts
   : [];
 const CATEGORIES = window.APP_DATA.categories || [];
-const ALL_CATEGORIES = ['Semua', ...CATEGORIES];
 
 const EMPTY_FORM = {
   id: '',
@@ -50,6 +49,45 @@ const saveSavedValue = (key, value) => {
   }
 };
 
+const formatMonthKey = (dateString) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const formatMonthLabel = (monthKey) => {
+  if (!monthKey || monthKey === 'all') return 'Semua Bulan';
+  const [year, month] = monthKey.split('-');
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  return date.toLocaleDateString('id-ID', {
+    month: 'long',
+    year: 'numeric'
+  });
+};
+
+const escapeCsvValue = (value) => {
+  const safe = String(value ?? '').replace(/"/g, '""');
+  return `"${safe}"`;
+};
+
+const downloadCsvFile = (filename, rows) => {
+  const header = Object.keys(rows[0] || {}).map(escapeCsvValue).join(',');
+  const csv = [header, ...rows.map((row) => Object.values(row).map(escapeCsvValue).join(','))]
+    .filter(Boolean)
+    .join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+};
+
 const Icon = ({ name, size = 18, className = '' }) => {
   useEffect(() => {
     if (window.lucide) window.lucide.createIcons();
@@ -79,6 +117,8 @@ function App() {
   const [formErrors, setFormErrors] = useState({});
   const [saleForm, setSaleForm] = useState({ productId: '', quantity: 1, customer: '', phone: '', email: '' });
   const [importInputKey, setImportInputKey] = useState(Date.now());
+  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [isProfitDetailOpen, setIsProfitDetailOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -156,27 +196,67 @@ function App() {
 
   const chartMaxValue = useMemo(() => Math.max(...salesChartData.map((day) => day.value), 1), [salesChartData]);
 
-  const recentTransactions = useMemo(
-    () => [...transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 6),
-    [transactions]
-  );
+  const monthOptions = useMemo(() => {
+    const set = new Set();
+    transactions.forEach((tx) => {
+      const month = formatMonthKey(tx.createdAt);
+      if (month) set.add(month);
+    });
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [transactions]);
+
+  const filteredTransactions = useMemo(() => {
+    const sorted = [...transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    if (selectedMonth === 'all') return sorted;
+    return sorted.filter((tx) => formatMonthKey(tx.createdAt) === selectedMonth);
+  }, [transactions, selectedMonth]);
 
   const totalRevenue = useMemo(
-    () => transactions.reduce((sum, tx) => sum + safeNumber(tx.total, 0), 0),
-    [transactions]
+    () => filteredTransactions.reduce((sum, tx) => sum + safeNumber(tx.total, 0), 0),
+    [filteredTransactions]
   );
 
   const totalCost = useMemo(
-    () => transactions.reduce((sum, tx) => sum + safeNumber(tx.totalCost, 0), 0),
-    [transactions]
+    () => filteredTransactions.reduce((sum, tx) => sum + safeNumber(tx.totalCost, 0), 0),
+    [filteredTransactions]
   );
 
   const totalProfit = useMemo(
-    () => transactions.reduce((sum, tx) => sum + safeNumber(tx.profit, 0), 0),
-    [transactions]
+    () => filteredTransactions.reduce((sum, tx) => sum + safeNumber(tx.profit, 0), 0),
+    [filteredTransactions]
   );
 
   const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  const recentTransactions = useMemo(
+    () => filteredTransactions.slice(0, 6),
+    [filteredTransactions]
+  );
+
+  const productProfitDetail = useMemo(() => {
+    const map = new Map();
+
+    filteredTransactions.forEach((tx) => {
+      const key = tx.productId || tx.productName;
+      if (!map.has(key)) {
+        map.set(key, {
+          productId: tx.productId,
+          productName: tx.productName,
+          unitSold: 0,
+          revenue: 0,
+          cost: 0,
+          profit: 0
+        });
+      }
+      const current = map.get(key);
+      current.unitSold += safeNumber(tx.quantity, 0);
+      current.revenue += safeNumber(tx.total, 0);
+      current.cost += safeNumber(tx.totalCost, 0);
+      current.profit += safeNumber(tx.profit, 0);
+    });
+
+    return [...map.values()].sort((a, b) => b.profit - a.profit);
+  }, [filteredTransactions]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -372,6 +452,45 @@ function App() {
     );
     setSaleForm({ productId: '', quantity: 1, customer: '', phone: '', email: '' });
     showToast('Transaksi berhasil dicatat.');
+  };
+
+  const exportTransactionsCsv = () => {
+    const rows = filteredTransactions.map((tx) => ({
+      ID: tx.id,
+      Produk: tx.productName,
+      Kategori: tx.productId,
+      Qty: tx.quantity,
+      Pelanggan: tx.customer,
+      NoHP: tx.customerPhone || '',
+      Email: tx.customerEmail || '',
+      Penerimaan: tx.total,
+      Pengeluaran: tx.totalCost,
+      Laba: tx.profit,
+      Tanggal: new Date(tx.createdAt).toLocaleString('id-ID')
+    }));
+
+    const filename = `laporan-transaksi-${selectedMonth === 'all' ? 'semua-bulan' : selectedMonth}.csv`;
+    downloadCsvFile(filename, rows);
+    showToast('Laporan CSV berhasil diunduh.');
+  };
+
+  const exportTransactionsExcel = () => {
+    const rows = filteredTransactions.map((tx) => ({
+      ID: tx.id,
+      Produk: tx.productName,
+      Qty: tx.quantity,
+      Pelanggan: tx.customer,
+      NoHP: tx.customerPhone || '',
+      Email: tx.customerEmail || '',
+      Penerimaan: tx.total,
+      Pengeluaran: tx.totalCost,
+      Laba: tx.profit,
+      Tanggal: new Date(tx.createdAt).toISOString()
+    }));
+
+    const filename = `laporan-keuangan-${selectedMonth === 'all' ? 'semua-bulan' : selectedMonth}.xls`;
+    downloadCsvFile(filename, rows);
+    showToast('Laporan Excel berhasil diekspor.');
   };
 
   const exportInventory = () => {
@@ -822,13 +941,129 @@ function App() {
         {activeTab === 'transactions' && (
           <section className="space-y-6">
             <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-xl font-black text-slate-800 dark:text-white">Profit / Loss Summary</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Laporan keuangan formal per bulan</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="input-shell rounded-xl border border-pink-100 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="all">Semua Bulan</option>
+                    {monthOptions.map((month) => (
+                      <option key={month} value={month}>
+                        {formatMonthLabel(month)}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsProfitDetailOpen((prev) => !prev)}
+                    className="rounded-xl border border-pink-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-pink-50 dark:border-pink-500/20 dark:bg-slate-800 dark:text-slate-200"
+                  >
+                    {isProfitDetailOpen ? 'Sembunyikan' : 'Detail Profit per Produk'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={exportTransactionsCsv}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-900/20 dark:text-emerald-200"
+                  >
+                    Export CSV
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={exportTransactionsExcel}
+                    className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-500/20 dark:bg-indigo-900/20 dark:text-indigo-200"
+                  >
+                    Export Excel
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="rounded-xl bg-gradient-to-r from-pink-50 to-violet-50 p-4 dark:from-pink-900/20 dark:to-violet-900/15">
+                  <p className="text-sm text-pink-700 dark:text-pink-200">Penerimaan</p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalRevenue)}</p>
+                </div>
+
+                <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 p-4 dark:from-amber-900/20 dark:to-orange-900/15">
+                  <p className="text-sm text-amber-700 dark:text-amber-200">Pengeluaran</p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalCost)}</p>
+                </div>
+
+                <div className={`rounded-xl bg-gradient-to-r ${totalProfit >= 0 ? 'from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/15' : 'from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/15'} p-4`}>
+                  <p className={`text-sm ${totalProfit >= 0 ? 'text-emerald-700 dark:text-emerald-200' : 'text-red-700 dark:text-red-200'}`}>
+                    {totalProfit >= 0 ? 'Laba Bersih' : 'Rugi Bersih'}
+                  </p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{formatRupiah(totalProfit)}</p>
+                </div>
+
+                <div className="rounded-xl bg-gradient-to-r from-sky-50 to-cyan-50 p-4 dark:from-sky-900/20 dark:to-cyan-900/15">
+                  <p className="text-sm text-sky-700 dark:text-sky-200">Margin</p>
+                  <p className="mt-2 text-2xl font-black text-slate-800 dark:text-white">{Math.abs(profitMargin).toFixed(1)}%</p>
+                </div>
+              </div>
+            </div>
+
+            {isProfitDetailOpen && (
+              <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white">Detail Profit per Produk</h3>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">{formatMonthLabel(selectedMonth)}</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-pink-100 dark:divide-pink-500/20">
+                    <thead className="bg-pink-50/80 dark:bg-slate-800/80">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produk</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty Terjual</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Penerimaan</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pengeluaran</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-pink-100 dark:divide-pink-500/20">
+                      {productProfitDetail.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                            Belum ada detail profit untuk periode ini.
+                          </td>
+                        </tr>
+                      ) : (
+                        productProfitDetail.map((item) => (
+                          <tr key={item.productId || item.productName}>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{item.productName}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{item.unitSold}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{formatRupiah(item.revenue)}</td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{formatRupiah(item.cost)}</td>
+                            <td className={`px-4 py-3 text-sm font-semibold ${item.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {formatRupiah(item.profit)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-pink-100 bg-white p-5 shadow-soft dark:border-pink-500/20 dark:bg-slate-900">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 dark:text-white">Revenue Trend</h2>
                   <p className="text-sm text-slate-500 dark:text-slate-400">Last 7 days performance</p>
                 </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${totalProfit >= 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200' : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200'}`}>
-                  {totalProfit >= 0 ? 'Profit' : 'Loss'} {formatRupiah(totalProfit)}
+                <span className="rounded-full bg-pink-100 px-2.5 py-1 text-xs font-semibold text-pink-700 dark:bg-pink-900/40 dark:text-pink-200">
+                  {formatRupiah(totalRevenue)} total
                 </span>
               </div>
 
