@@ -18,6 +18,16 @@ img {
   display: block;
 }
 
+.input-shell {
+  background-color: #f8fafc;
+  border-color: rgba(244, 114, 182, 0.25);
+  color: #0f172a;
+}
+
+.input-shell::placeholder {
+  color: #64748b;
+}
+
 .dark .table-shell {
   background-color: rgba(15, 23, 42, 0.82);
 }
