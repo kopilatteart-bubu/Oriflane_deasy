@@ -1,10 +1,16 @@
 (() => {
-  const appData = window.APP_DATA || {};
-  const storageKeys = appData.storageKeys || {};
-  const defaultProducts = Array.isArray(appData.defaultProducts) ? appData.defaultProducts : [];
-
   const resetInventory = () => {
-    const freshInventory = defaultProducts.map((product) => ({
+    const confirmed = window.confirm('Apakah Anda yakin ingin mereset semua stok dan penjualan menjadi nol?');
+    if (!confirmed) return;
+
+    if (typeof window.resetInventoryState === 'function') {
+      window.resetInventoryState();
+      return;
+    }
+
+    const appData = window.APP_DATA || {};
+    const defaults = Array.isArray(appData.defaultProducts) ? appData.defaultProducts : [];
+    const freshInventory = defaults.map((product) => ({
       ...product,
       stock: 0,
       minStock: Number(product.minStock ?? 0),
@@ -15,11 +21,20 @@
       image: product.image || ''
     }));
 
-    const inventoryKey = storageKeys.inventory || 'oriflame_inventory_data_v3_reset';
-    const transactionsKey = storageKeys.transactions || 'oriflame_inventory_transactions_v3_reset';
+    const state = {
+      version: 1,
+      inventory: freshInventory,
+      transactions: [],
+      theme: 'light',
+      updatedAt: new Date().toISOString()
+    };
 
-    localStorage.setItem(inventoryKey, JSON.stringify(freshInventory));
-    localStorage.setItem(transactionsKey, JSON.stringify([]));
+    localStorage.setItem('oriflame_inventory_app_v1', JSON.stringify(state));
+    Object.values({
+      inventory: 'oriflame_inventory_data_v3_reset',
+      transactions: 'oriflame_inventory_transactions_v3_reset',
+      theme: 'oriflame_inventory_theme_v3_reset'
+    }).forEach((key) => localStorage.removeItem(key));
 
     window.location.reload();
   };
@@ -51,16 +66,12 @@
       ].join('')
     );
 
-    button.addEventListener('click', () => {
-      const confirmed = window.confirm('Apakah Anda yakin ingin mereset semua stok dan penjualan menjadi nol?');
-      if (confirmed) resetInventory();
-    });
-
+    button.addEventListener('click', resetInventory);
     document.body.appendChild(button);
   };
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountResetButton, { once: true });
+    window.addEventListener('DOMContentLoaded', mountResetButton, { once: true });
   } else {
     mountResetButton();
   }
