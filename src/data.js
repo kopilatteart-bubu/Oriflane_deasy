@@ -1,10 +1,11 @@
 window.APP_DATA = {
+  storageKey: 'oriflame_inventory_app_v1',
   storageKeys: {
     inventory: 'oriflame_inventory_data_v3_reset',
     transactions: 'oriflame_inventory_transactions_v3_reset',
     theme: 'oriflame_inventory_theme_v3_reset'
   },
-  categories: ['Skincare', 'Makeup', 'Fragrance', 'Personal Care', 'Wellness', 'Oriflame Color'],
+  categories: ['Skincare', 'Makeup', 'Fragrance', 'Personal Care', 'Wellness', 'Hair Care', 'Oriflame Color'],
   defaultProducts: [
     {
       id: 'ORI-001',
@@ -114,6 +115,160 @@ window.APP_DATA = {
       minStock: 6,
       unit: 'pcs',
       description: 'Palette shadow dengan kombinasi warna coral yang cocok untuk tampilan sehari-hari.',
+      image: ''
+    },
+    {
+      id: 'ORI-011',
+      name: 'NovAge Perfector Night Cream',
+      category: 'Skincare',
+      price: 639000,
+      stock: 0,
+      minStock: 4,
+      unit: 'pcs',
+      description: 'Krim malam perawatan wajah untuk tampilan lebih halus dan terjaga.',
+      image: ''
+    },
+    {
+      id: 'ORI-012',
+      name: 'Love Nature Hydrating Facial Cleanser',
+      category: 'Skincare',
+      price: 109000,
+      stock: 0,
+      minStock: 10,
+      unit: 'pcs',
+      description: 'Pembersih wajah lembut dengan kandungan aloe vera dan air bunga.',
+      image: ''
+    },
+    {
+      id: 'ORI-013',
+      name: 'Optifit Active Body Lotion',
+      category: 'Personal Care',
+      price: 139000,
+      stock: 0,
+      minStock: 8,
+      unit: 'pcs',
+      description: 'Lotion tubuh yang membantu melembapkan sekaligus meningkatkan kenyamanan kulit.',
+      image: ''
+    },
+    {
+      id: 'ORI-014',
+      name: 'Giordani Gold Woman Deodorant',
+      category: 'Personal Care',
+      price: 84000,
+      stock: 0,
+      minStock: 9,
+      unit: 'pcs',
+      description: 'Deodoran wanita dengan aroma premium untuk penggunaan harian.',
+      image: ''
+    },
+    {
+      id: 'ORI-015',
+      name: 'The One Matte Lipstick - Nude Rose',
+      category: 'Makeup',
+      price: 149000,
+      stock: 0,
+      minStock: 7,
+      unit: 'pcs',
+      description: 'Lipstik liptint matte dengan kesan elegan dan tahan lama.',
+      image: ''
+    },
+    {
+      id: 'ORI-016',
+      name: 'The One Eyeliner - Black Ink',
+      category: 'Makeup',
+      price: 98000,
+      stock: 0,
+      minStock: 10,
+      unit: 'pcs',
+      description: 'Eyeliner tahan lama untuk tampilan mata yang tajam dan rapi.',
+      image: ''
+    },
+    {
+      id: 'ORI-017',
+      name: 'The One Blush - Peach Glow',
+      category: 'Makeup',
+      price: 129000,
+      stock: 0,
+      minStock: 8,
+      unit: 'pcs',
+      description: 'Blush bertekstur lembut untuk memberi rona sehat pada wajah.',
+      image: ''
+    },
+    {
+      id: 'ORI-018',
+      name: 'Eclat Amour Perfumed Body Mist',
+      category: 'Fragrance',
+      price: 189000,
+      stock: 0,
+      minStock: 6,
+      unit: 'pcs',
+      description: 'Body mist dengan aroma segar dan tahan lama untuk keseharian.',
+      image: ''
+    },
+    {
+      id: 'ORI-019',
+      name: 'Wellosophy Vitamin C Effervescent',
+      category: 'Wellness',
+      price: 239000,
+      stock: 0,
+      minStock: 5,
+      unit: 'botol',
+      description: 'Suplemen vitamin C untuk mendukung energi dan daya tahan tubuh.',
+      image: ''
+    },
+    {
+      id: 'ORI-020',
+      name: 'HairX Shine Serum',
+      category: 'Hair Care',
+      price: 169000,
+      stock: 0,
+      minStock: 7,
+      unit: 'pcs',
+      description: 'Serum rambut yang membantu mengurangi kusut dan menambah kilau.',
+      image: ''
+    },
+    {
+      id: 'ORI-021',
+      name: 'HairX Repair Shampoo',
+      category: 'Hair Care',
+      price: 145000,
+      stock: 0,
+      minStock: 8,
+      unit: 'pcs',
+      description: 'Shampo perawatan rambut rusak dan kusam untuk hasil yang lebih sehat.',
+      image: ''
+    },
+    {
+      id: 'ORI-022',
+      name: 'The One Foundation - Ivory Beige',
+      category: 'Makeup',
+      price: 219000,
+      stock: 0,
+      minStock: 6,
+      unit: 'pcs',
+      description: 'Foundation ringan dengan finish natural untuk tampilan sehari-hari.',
+      image: ''
+    },
+    {
+      id: 'ORI-023',
+      name: 'Giordani Gold Hand Cream',
+      category: 'Personal Care',
+      price: 76000,
+      stock: 0,
+      minStock: 12,
+      unit: 'pcs',
+      description: 'Hand cream lembut yang melembapkan kulit tangan dan menjaga kesejukan.',
+      image: ''
+    },
+    {
+      id: 'ORI-024',
+      name: 'Love Nature Body Wash Coconut',
+      category: 'Personal Care',
+      price: 129000,
+      stock: 0,
+      minStock: 9,
+      unit: 'pcs',
+      description: 'Body wash dengan aroma kelapa yang menenangkan dan membersihkan dengan lembut.',
       image: ''
     }
   ]
